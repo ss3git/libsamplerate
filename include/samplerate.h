@@ -24,8 +24,17 @@ typedef struct SRC_STATE_tag SRC_STATE ;
 
 /* SRC_DATA is used to pass data to src_simple() and src_process(). */
 typedef struct
-{	const float	*data_in ;
-	float	*data_out ;
+{
+	union{
+		const float	*data_in ;
+		const double *data_in_double;
+		const int *data_in_s32;
+	};
+	union{
+		float	*data_out ;
+		double	*data_out_double;
+		int	*data_out_s32;
+	};
 
 	long	input_frames, output_frames ;
 	long	input_frames_used, output_frames_gen ;
@@ -84,6 +93,8 @@ SRC_STATE* src_delete (SRC_STATE *state) ;
 */
 
 int src_process (SRC_STATE *state, SRC_DATA *data) ;
+int src_process_S32 (SRC_STATE *state, SRC_DATA *dataS32) ;
+int src_process_D64 (SRC_STATE *state, SRC_DATA *dataD64) ;
 
 /*
 **	Callback based processing function. Read up to frames worth of data from
@@ -99,6 +110,8 @@ long src_callback_read (SRC_STATE *state, double src_ratio, long frames, float *
 */
 
 int src_simple (SRC_DATA *data, int converter_type, int channels) ;
+int src_simple_S32 (SRC_DATA *data, int converter_type, int channels) ;
+int src_simple_D64 (SRC_DATA *data, int converter_type, int channels) ;
 
 /*
 ** This library contains a number of different sample rate converters,

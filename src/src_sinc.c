@@ -39,8 +39,15 @@
 /*========================================================================================
 */
 
+#ifdef SINC_DOUBLE_PRECISION
+	#include <limits.h>
+	typedef double sinc_buffer_t;
+	typedef double	coeff_t ;
+#else
+	typedef float sinc_buffer_t;
+	typedef float	coeff_t ;
+#endif
 typedef int32_t increment_t ;
-typedef float	coeff_t ;
 typedef int _CHECK_SHIFT_BITS[2 * (SHIFT_BITS < sizeof (increment_t) * 8 - 1) - 1]; /* sanity check. */
 
 #ifdef ENABLE_SINC_FAST_CONVERTER
@@ -70,20 +77,36 @@ typedef struct
 	/* Sure hope noone does more than 128 channels at once. */
 	double left_calc [MAX_CHANNELS], right_calc [MAX_CHANNELS] ;
 
-	float	*buffer ;
+	sinc_buffer_t	*buffer ;
 } SINC_FILTER ;
 
-static SRC_ERROR sinc_multichan_vari_process (SRC_STATE *state, SRC_DATA *data) ;
-static SRC_ERROR sinc_hex_vari_process (SRC_STATE *state, SRC_DATA *data) ;
-static SRC_ERROR sinc_quad_vari_process (SRC_STATE *state, SRC_DATA *data) ;
-static SRC_ERROR sinc_stereo_vari_process (SRC_STATE *state, SRC_DATA *data) ;
-static SRC_ERROR sinc_mono_vari_process (SRC_STATE *state, SRC_DATA *data) ;
+#ifndef MULTI_THREADING
+static SRC_ERROR sinc_multichan_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped) ;
+static SRC_ERROR sinc_hex_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped) ;
+static SRC_ERROR sinc_quad_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped) ;
+static SRC_ERROR sinc_stereo_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped) ;
+static SRC_ERROR sinc_mono_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped) ;
+#endif
 
+static SRC_ERROR _prepare_data (SINC_FILTER *filter, int channels, const int data_type, SRC_DATA *data, int half_filter_chan_len) WARN_UNUSED ;
 static SRC_ERROR prepare_data (SINC_FILTER *filter, int channels, SRC_DATA *data, int half_filter_chan_len) WARN_UNUSED ;
 
 static void sinc_reset (SRC_STATE *state) ;
 static SRC_STATE *sinc_copy (SRC_STATE *state) ;
 static void sinc_close (SRC_STATE *state) ;
+
+#ifdef MULTI_THREADING
+static SRC_ERROR sinc_multithread_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped) ;
+static SRC_STATE_VT sinc_multithread_state_vt =
+{
+	sinc_multithread_vari_process,
+	sinc_multithread_vari_process,
+	sinc_reset,
+	sinc_copy,
+	sinc_close
+} ;
+
+#else /* ! MULTI_THREADING */
 
 static SRC_STATE_VT sinc_multichan_state_vt =
 {
@@ -130,16 +153,6 @@ static SRC_STATE_VT sinc_mono_state_vt =
 	sinc_close
 } ;
 
-#ifdef MULTI_THREADING
-static SRC_ERROR sinc_multithread_vari_process (SRC_STATE *state, SRC_DATA *data) ;
-static SRC_STATE_VT sinc_multithread_state_vt =
-{
-	sinc_multithread_vari_process,
-	sinc_multithread_vari_process,
-	sinc_reset,
-	sinc_copy,
-	sinc_close
-} ;
 #endif
 
 static inline increment_t
@@ -229,7 +242,7 @@ sinc_get_description (int src_enum)
 	#define ALWAYS_INLINE __attribute__((always_inline)) static
 
 	#define mem_prefetch(ptr) __builtin_prefetch(ptr)
-
+	
 #else
 	#define ALWAYS_INLINE static
 
@@ -240,8 +253,8 @@ sinc_get_description (int src_enum)
 #define MULTI_THREADING_THRESHOLD (256)
 
 ALWAYS_INLINE void
-calc_output_multi_mt_core(const int enable_prefetch, const int skip_fraction, const SINC_FILTER *const filter,
-						  const increment_t increment, const increment_t start_filter_index, const int channels, const double scale, float *const output)
+calc_output_multi_mt_core(const int enable_prefetch, const int skip_fraction, const int double_precision_coeff, const SINC_FILTER *const filter,
+						  const increment_t increment, const increment_t start_filter_index, const int channels, const double scale, double *const output)
 {
 	double left[MAX_CHANNELS] = {0};
 	double right[MAX_CHANNELS] = {0};
@@ -280,7 +293,9 @@ calc_output_multi_mt_core(const int enable_prefetch, const int skip_fraction, co
 			const double fraction = fp_to_double(filter_index1);
 			const int indx = fp_to_int(filter_index1);
 			assert(indx >= 0 && indx + 1 < filter->coeff_half_len + 2);
-			const double icoeff = skip_fraction ? filter->coeffs[indx] : filter->coeffs[indx] + fraction * (filter->coeffs[indx + 1] - filter->coeffs[indx]);
+			const coeff_t coeff_val = double_precision_coeff ? filter->coeffs[indx] : (float)filter->coeffs[indx];
+			const coeff_t coeff_fraction = double_precision_coeff ? (filter->coeffs[indx + 1] - filter->coeffs[indx]) : ((float)filter->coeffs[indx + 1] - (float)filter->coeffs[indx]);
+			const double icoeff = skip_fraction ? coeff_val : coeff_val + fraction * coeff_fraction;
 			assert(data_index1 >= 0 && data_index1 + channels - 1 < filter->b_len);
 			assert(data_index1 + channels - 1 < filter->b_end);
 			for (int ch = 0; ch < channels; ch++)
@@ -311,7 +326,9 @@ calc_output_multi_mt_core(const int enable_prefetch, const int skip_fraction, co
 			const double fraction = fp_to_double(filter_index2);
 			const int indx = fp_to_int(filter_index2);
 			assert(indx >= 0 && indx + 1 < filter->coeff_half_len + 2);
-			const double icoeff = skip_fraction ? filter->coeffs[indx] : filter->coeffs[indx] + fraction * (filter->coeffs[indx + 1] - filter->coeffs[indx]);
+			const coeff_t coeff_val = double_precision_coeff ? filter->coeffs[indx] : (float)filter->coeffs[indx];
+			const coeff_t coeff_fraction = double_precision_coeff ? (filter->coeffs[indx + 1] - filter->coeffs[indx]) : ((float)filter->coeffs[indx + 1] - (float)filter->coeffs[indx]);
+			const double icoeff = skip_fraction ? coeff_val : coeff_val + fraction * coeff_fraction;
 			assert(data_index2 >= 0 && data_index2 + channels - 1 < filter->b_len);
 			assert(data_index2 + channels - 1 < filter->b_end);
 			for (int ch = 0; ch < channels; ch++)
@@ -319,16 +336,17 @@ calc_output_multi_mt_core(const int enable_prefetch, const int skip_fraction, co
 
 			filter_index2 -= increment;
 			data_index2 = data_index2 - channels;
+
 		} while (filter_index2 > MAKE_INCREMENT_T(0));
 	}
 
 	for (int ch = 0; ch < channels; ch++)
-		output[ch] = (float)(scale * (left[ch] + right[ch]));
+		output[ch] = (scale * (left[ch] + right[ch])); // double
 } /* calc_output_multi_mt_core */
 
 ALWAYS_INLINE void
-calc_output_multi_mt_2(
-	const SINC_FILTER *const filter, const increment_t increment, const increment_t start_filter_index, const int channels, const double scale, float *const output)
+calc_output_multi_mt_3(const int double_precision_coeff,
+					   const SINC_FILTER *const filter, const increment_t increment, const increment_t start_filter_index, const int channels, const double scale, double *const output)
 {
 
 	const int skip_fraction = increment == ((increment >> SHIFT_BITS) << SHIFT_BITS) && start_filter_index == ((start_filter_index >> SHIFT_BITS) << SHIFT_BITS) ? 1 : 0;
@@ -338,32 +356,52 @@ calc_output_multi_mt_2(
 	{
 		if (enable_prefetch)
 		{
-			calc_output_multi_mt_core(1, 1, filter, increment, start_filter_index, channels, scale, output);
+			calc_output_multi_mt_core(1, 1, double_precision_coeff, filter, increment, start_filter_index, channels, scale, output);
 		}
 		else
 		{
-			calc_output_multi_mt_core(0, 1, filter, increment, start_filter_index, channels, scale, output);
+			calc_output_multi_mt_core(0, 1, double_precision_coeff, filter, increment, start_filter_index, channels, scale, output);
 		}
 	}
 	else
 	{
 		if (enable_prefetch)
 		{
-			calc_output_multi_mt_core(1, 0, filter, increment, start_filter_index, channels, scale, output);
+			calc_output_multi_mt_core(1, 0, double_precision_coeff, filter, increment, start_filter_index, channels, scale, output);
 		}
 		else
 		{
-			calc_output_multi_mt_core(0, 0, filter, increment, start_filter_index, channels, scale, output);
+			calc_output_multi_mt_core(0, 0, double_precision_coeff, filter, increment, start_filter_index, channels, scale, output);
 		}
 	}
 }
 
 ALWAYS_INLINE void
-calc_output_multi_mt(const SINC_FILTER *const filter, const increment_t increment, const increment_t start_filter_index, const int channels, const double scale, float *const output)
+calc_output_multi_mt_2(const int double_precision,
+					   const SINC_FILTER *const filter, const increment_t increment, const increment_t start_filter_index, const int channels, const double scale, double *const output)
 {
-#define OPTIMIZE_LINE(x)                                                                 \
-	case (x):                                                                            \
-		calc_output_multi_mt_2(filter, increment, start_filter_index, x, scale, output); \
+	#if defined(SINC_DOUBLE_PRECISION) && defined(SINC_FLOAT_COMPATIBLE)
+	if (double_precision)
+		calc_output_multi_mt_3(1, filter, increment, start_filter_index, channels, scale, output);
+	else
+		calc_output_multi_mt_3(0, filter, increment, start_filter_index, channels, scale, output);
+
+	#elif defined(SINC_DOUBLE_PRECISION)
+	calc_output_multi_mt_3(1, filter, increment, start_filter_index, channels, scale, output);
+
+	#else
+	calc_output_multi_mt_3(0, filter, increment, start_filter_index, channels, scale, output);
+
+	#endif
+}
+
+ALWAYS_INLINE void
+calc_output_multi_mt(const int double_precision,
+					 const SINC_FILTER *const filter, const increment_t increment, const increment_t start_filter_index, const int channels, const double scale, double *const output)
+{
+#define OPTIMIZE_LINE(x)                                                                                   \
+	case (x):                                                                                              \
+		calc_output_multi_mt_2(double_precision, filter, increment, start_filter_index, x, scale, output); \
 		break;
 
 	switch (channels) // to kick the compile-time optimizer, channel numbers up to 16 are extracted as constants here.
@@ -385,15 +423,15 @@ calc_output_multi_mt(const SINC_FILTER *const filter, const increment_t incremen
 		OPTIMIZE_LINE(15);
 		OPTIMIZE_LINE(16);
 	default:
-		calc_output_multi_mt_2(filter, increment, start_filter_index, channels, scale, output);
+		calc_output_multi_mt_2(double_precision, filter, increment, start_filter_index, channels, scale, output);
 		break;
 	}
 #undef OPTIMIZE_LINE
 }
 
 static SRC_ERROR
-_sinc_multichan_vari_process_mt(const int num_of_threads, const int child_no,
-								SRC_STATE *const state, SRC_DATA *const data, SRC_STATE *const main_state)
+__sinc_multichan_vari_process_mt(const int double_precision, const int num_of_threads, const int child_no,
+								 SRC_STATE *const state, const int data_type, SRC_DATA *const data, SRC_STATE *const main_state)
 {
 	if (state->private_data == NULL)
 		return SRC_ERR_NO_PRIVATE;
@@ -402,8 +440,13 @@ _sinc_multichan_vari_process_mt(const int num_of_threads, const int child_no,
 	SINC_FILTER *main_filter = (SINC_FILTER *)main_state->private_data;
 
 	/* If there is not a problem, this will be optimised out. */
+	#ifdef SINC_DOUBLE_PRECISION
+	if (sizeof(filter->buffer[0]) != sizeof(data->data_in_double[0]))
+		return SRC_ERR_SIZE_INCOMPATIBILITY;
+	#else
 	if (sizeof(filter->buffer[0]) != sizeof(data->data_in[0]))
 		return SRC_ERR_SIZE_INCOMPATIBILITY;
+	#endif
 
 	const int channels = state->channels;
 	filter->in_count = data->input_frames * channels;
@@ -442,7 +485,7 @@ _sinc_multichan_vari_process_mt(const int num_of_threads, const int child_no,
 
 	/* Main processing loop. */
 	int interleave_counter = 0;
-	float *const data_out = data->data_out;
+	// sinc_buffer_t * const data_out = (sinc_buffer_t *)data->data_out;
 
 	while (filter->out_gen < out_count)
 	{
@@ -456,12 +499,12 @@ _sinc_multichan_vari_process_mt(const int num_of_threads, const int child_no,
 				#pragma omp barrier
 				#pragma omp single
 				{
-					state->error = prepare_data(filter, channels, data, half_filter_chan_len);
+					state->error = _prepare_data(filter, channels, data_type, data, half_filter_chan_len);
 
 					*main_state = *state;
 					*main_filter = *filter;
 				}
-				#pragma omp barrier					
+				#pragma omp barrier
 				{
 					*state = *main_state;
 					*filter = *main_filter;
@@ -505,7 +548,22 @@ _sinc_multichan_vari_process_mt(const int num_of_threads, const int child_no,
 
 		if (child_no == interleave_counter)
 		{
-			calc_output_multi_mt(filter, increment, start_filter_index, channels, scale, data_out + filter->out_gen);
+			double data_out_double[MAX_CHANNELS];
+			calc_output_multi_mt(double_precision, filter, increment, start_filter_index, channels, scale, data_out_double);
+			if (double_precision)
+			{
+				for (int ch = 0; ch < channels; ch++)
+				{
+					data->data_out_double[filter->out_gen + ch] = data_out_double[ch];
+				}
+			}
+			else
+			{
+				for (int ch = 0; ch < channels; ch++)
+				{
+					data->data_out[filter->out_gen + ch] = (float)data_out_double[ch];
+				}
+			}
 		}
 		if (++interleave_counter == num_of_threads)
 			interleave_counter = 0;
@@ -532,11 +590,31 @@ _sinc_multichan_vari_process_mt(const int num_of_threads, const int child_no,
 	return SRC_ERR_NO_ERROR;
 }
 
+ALWAYS_INLINE SRC_ERROR
+_sinc_multichan_vari_process_mt(const int num_of_threads, const int child_no,
+								SRC_STATE *const state, const int data_type, SRC_DATA *const data, SRC_STATE *const main_state)
+{
+	const int double_precision = (data_type == SRC_DATA_TYPE_DOUBLE);
+
+	if (double_precision)
+	{
+		return __sinc_multichan_vari_process_mt(1, num_of_threads, child_no, state, data_type, data, main_state);
+	}
+	else
+	{
+		return __sinc_multichan_vari_process_mt(0, num_of_threads, child_no, state, data_type, data, main_state);
+	}
+}
+
 static SRC_ERROR
-sinc_multithread_vari_process(SRC_STATE *state, SRC_DATA *data)
+sinc_multithread_vari_process_floating_point(SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped)
 {
 	if (state->private_data == NULL)
 		return SRC_ERR_NO_PRIVATE;
+
+	const int data_type = data_wrapped->type;
+
+	SRC_DATA *data = data_wrapped->data;
 
 	const int channels = state->channels;
 
@@ -571,7 +649,7 @@ sinc_multithread_vari_process(SRC_STATE *state, SRC_DATA *data)
 
 	if (num_of_threads == 1) // w/o OpenMP
 	{
-		per_thread_retval[0] = _sinc_multichan_vari_process_mt(1, 0, state, data, state);
+		per_thread_retval[0] = _sinc_multichan_vari_process_mt(1, 0, state, data_type, data, state);
 
 		retval = per_thread_retval[0];
 
@@ -580,7 +658,7 @@ sinc_multithread_vari_process(SRC_STATE *state, SRC_DATA *data)
 
 	int omp_child_no;
 
-	#pragma omp parallel for
+#pragma omp parallel for
 	for (omp_child_no = 0; omp_child_no < num_of_threads; omp_child_no++)
 	{
 		const int child_no = omp_child_no;
@@ -595,7 +673,7 @@ sinc_multithread_vari_process(SRC_STATE *state, SRC_DATA *data)
 
 		per_thread_retval[child_no] = _sinc_multichan_vari_process_mt(
 			num_of_threads, child_no,
-			&per_thread_state[child_no], &per_thread_data[child_no], state);
+			&per_thread_state[child_no], data_type, &per_thread_data[child_no], state);
 	}
 
 	// error checking for each worker
@@ -609,7 +687,7 @@ sinc_multithread_vari_process(SRC_STATE *state, SRC_DATA *data)
 	}
 
 	// update filter status
-	float *buf = filter->buffer;
+	sinc_buffer_t *buf = filter->buffer;
 	memcpy(filter, &per_thread_filter[0], sizeof(SINC_FILTER));
 	filter->buffer = buf;
 
@@ -637,6 +715,100 @@ cleanup_and_return:
 	return retval;
 }
 
+#ifndef SINC_DOUBLE_PRECISION
+static SRC_ERROR
+sinc_multithread_vari_process(SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped)
+{
+	assert(data_wrapped->type == SRC_DATA_TYPE_FLOAT);
+
+	return sinc_multithread_vari_process_floating_point(state, data_wrapped);
+}
+#else
+static SRC_ERROR
+sinc_multithread_vari_process(SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped)
+{
+	if (data_wrapped->type != SRC_DATA_TYPE_S32)
+	{
+		return sinc_multithread_vari_process_floating_point(state, data_wrapped);
+	}
+
+	SRC_DATA *data = data_wrapped->data;
+	SRC_ERROR retval;
+
+	const long in_count = data->input_frames * state->channels;
+	const long out_count = data->output_frames * state->channels;
+
+	sinc_buffer_t *data_in_double = (sinc_buffer_t *)malloc(in_count * sizeof(sinc_buffer_t));
+	sinc_buffer_t *data_out_double = (sinc_buffer_t *)malloc(out_count * sizeof(sinc_buffer_t));
+
+	if (!data_in_double || !data_out_double)
+	{
+		if (data_in_double)
+			free(data_in_double);
+		if (data_out_double)
+			free(data_out_double);
+		return SRC_ERR_MALLOC_FAILED;
+	}
+
+	SRC_DATA _data_dp = *data;
+	SRC_DATA *data_dp = &_data_dp;
+
+	data_dp->data_in_double = data_in_double;
+	data_dp->data_out_double = data_out_double;
+
+	switch (data_wrapped->type)
+	{ // currently SRC_DATA_TYPE_S32 only
+		long i;
+
+	case SRC_DATA_TYPE_S32:
+		#pragma omp parallel for
+		for (i = 0; i < in_count; i++)
+		{
+			data_in_double[i] = (double)data->data_in_s32[i] / INT_MAX;
+		}
+
+		SRC_DATA_WRAPPED _data_wrapped_dp = *data_wrapped;
+		SRC_DATA_WRAPPED *data_wrapped_dp = &_data_wrapped_dp;
+
+		data_wrapped_dp->type = SRC_DATA_TYPE_DOUBLE;
+		data_wrapped_dp->data = data_dp;
+
+		retval = sinc_multithread_vari_process_floating_point(state, data_wrapped_dp);
+
+		#pragma omp parallel for
+		for (i = 0; i < data_dp->output_frames_gen * state->channels; i++)
+		{
+			double out = data_out_double[i] * INT_MAX;
+			if (out > INT_MAX)
+			{
+				out = INT_MAX;
+			}
+			else if (out < INT_MIN)
+			{
+				out = INT_MIN;
+			}
+			data->data_out_s32[i] = (int)(out);
+		}
+		break;
+
+	default:
+		retval = SRC_ERR_BAD_CONVERTER;
+		break;
+	}
+
+	data->input_frames = data_dp->input_frames;
+	data->output_frames = data_dp->output_frames;
+	data->input_frames_used = data_dp->input_frames_used;
+	data->output_frames_gen = data_dp->output_frames_gen;
+	data->end_of_input = data_dp->end_of_input;
+	data->src_ratio = data_dp->src_ratio;
+
+	free(data_in_double);
+	free(data_out_double);
+
+	return retval;
+}
+#endif /* SINC_DOUBLE_PRECISION */
 #endif /* MULTI_THREADING*/
 
 static SINC_FILTER *
@@ -682,7 +854,7 @@ sinc_filter_new (int converter_type, int channels)
 		priv->b_len += 1 ; // There is a <= check against samples_in_hand requiring a buffer bigger than the calculation above
 
 
-		priv->buffer = (float *) calloc (priv->b_len + channels, sizeof (float)) ;
+		priv->buffer = (sinc_buffer_t *) calloc (priv->b_len + channels, sizeof (sinc_buffer_t)) ;
 		if (!priv->buffer)
 		{
 			free (priv) ;
@@ -789,19 +961,25 @@ sinc_copy (SRC_STATE *state)
 		return NULL ;
 	}
 	memcpy (to_filter, from_filter, sizeof (SINC_FILTER)) ;
-	to_filter->buffer = (float *) malloc (sizeof (float) * (from_filter->b_len + state->channels)) ;
+	to_filter->buffer = (sinc_buffer_t *) malloc (sizeof (sinc_buffer_t) * (from_filter->b_len + state->channels)) ;
 	if (!to_filter->buffer)
 	{
 		free (to) ;
 		free (to_filter) ;
 		return NULL ;
 	}
-	memcpy (to_filter->buffer, from_filter->buffer, sizeof (float) * (from_filter->b_len + state->channels)) ;
+	memcpy (to_filter->buffer, from_filter->buffer, sizeof (sinc_buffer_t) * (from_filter->b_len + state->channels)) ;
 
 	to->private_data = to_filter ;
 
 	return to ;
 } /* sinc_copy */
+
+#ifndef MULTI_THREADING
+
+	#ifdef SINC_DOUBLE_PRECISION
+		#error SINC_DOUBLE_PRECISION currently requires MULTI_THREADING defined
+	#endif
 
 /*========================================================================================
 **	Beware all ye who dare pass this point. There be dragons here.
@@ -868,8 +1046,9 @@ calc_output_single (SINC_FILTER *filter, increment_t increment, increment_t star
 } /* calc_output_single */
 
 static SRC_ERROR
-sinc_mono_vari_process (SRC_STATE *state, SRC_DATA *data)
-{	SINC_FILTER *filter ;
+sinc_mono_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped)
+{	SRC_DATA *data = data_wrapped->data;
+	SINC_FILTER *filter ;
 	double		input_index, src_ratio, count, float_increment, terminate, rem ;
 	increment_t	increment, start_filter_index ;
 	int			half_filter_chan_len, samples_in_hand ;
@@ -1024,8 +1203,9 @@ calc_output_stereo (SINC_FILTER *filter, int channels, increment_t increment, in
 } /* calc_output_stereo */
 
 SRC_ERROR
-sinc_stereo_vari_process (SRC_STATE *state, SRC_DATA *data)
-{	SINC_FILTER *filter ;
+sinc_stereo_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped)
+{	SRC_DATA *data = data_wrapped->data;
+	SINC_FILTER *filter ;
 	double		input_index, src_ratio, count, float_increment, terminate, rem ;
 	increment_t	increment, start_filter_index ;
 	int			half_filter_chan_len, samples_in_hand ;
@@ -1180,8 +1360,9 @@ calc_output_quad (SINC_FILTER *filter, int channels, increment_t increment, incr
 } /* calc_output_quad */
 
 SRC_ERROR
-sinc_quad_vari_process (SRC_STATE *state, SRC_DATA *data)
-{	SINC_FILTER *filter ;
+sinc_quad_vari_process (SRC_STATE *state,SRC_DATA_WRAPPED *data_wrapped)
+{	SRC_DATA *data = data_wrapped->data;
+	SINC_FILTER *filter ;
 	double		input_index, src_ratio, count, float_increment, terminate, rem ;
 	increment_t	increment, start_filter_index ;
 	int			half_filter_chan_len, samples_in_hand ;
@@ -1335,8 +1516,9 @@ calc_output_hex (SINC_FILTER *filter, int channels, increment_t increment, incre
 } /* calc_output_hex */
 
 SRC_ERROR
-sinc_hex_vari_process (SRC_STATE *state, SRC_DATA *data)
-{	SINC_FILTER *filter ;
+sinc_hex_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped)
+{	SRC_DATA *data = data_wrapped->data;
+	SINC_FILTER *filter ;
 	double		input_index, src_ratio, count, float_increment, terminate, rem ;
 	increment_t	increment, start_filter_index ;
 	int			half_filter_chan_len, samples_in_hand ;
@@ -1500,8 +1682,9 @@ calc_output_multi (SINC_FILTER *filter, increment_t increment, increment_t start
 } /* calc_output_multi */
 
 static SRC_ERROR
-sinc_multichan_vari_process (SRC_STATE *state, SRC_DATA *data)
-{	SINC_FILTER *filter ;
+sinc_multichan_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped)
+{	SRC_DATA *data = data_wrapped->data;
+	SINC_FILTER *filter ;
 	double		input_index, src_ratio, count, float_increment, terminate, rem ;
 	increment_t	increment, start_filter_index ;
 	int			half_filter_chan_len, samples_in_hand ;
@@ -1593,9 +1776,10 @@ sinc_multichan_vari_process (SRC_STATE *state, SRC_DATA *data)
 
 /*----------------------------------------------------------------------------------------
 */
+#endif /* !MULTI_THREADING */
 
 static SRC_ERROR
-prepare_data (SINC_FILTER *filter, int channels, SRC_DATA *data, int half_filter_chan_len)
+_prepare_data (SINC_FILTER *filter, int channels, const int data_type, SRC_DATA * const data, int half_filter_chan_len)
 {	int len = 0 ;
 
 	if (filter->b_real_end >= 0)
@@ -1635,8 +1819,22 @@ prepare_data (SINC_FILTER *filter, int channels, SRC_DATA *data, int half_filter
 	if (len < 0 || filter->b_end + len > filter->b_len)
 		return SRC_ERR_SINC_PREPARE_DATA_BAD_LEN ;
 
-	memcpy (filter->buffer + filter->b_end, data->data_in + filter->in_used,
-						len * sizeof (filter->buffer [0])) ;
+	#ifdef SINC_DOUBLE_PRECISION
+	if ( data_type == SRC_DATA_TYPE_DOUBLE ){
+		memcpy(filter->buffer + filter->b_end, data->data_in_double + filter->in_used,
+			   len * sizeof(filter->buffer[0]));
+	}
+	else {
+		sinc_buffer_t *dst = filter->buffer + filter->b_end;
+		const float *src = data->data_in + filter->in_used;
+		for( int i=0 ; i<len ; i++ ){
+			dst[i] = src[i];
+		}
+	}
+	#else
+		memcpy(filter->buffer + filter->b_end, data->data_in + filter->in_used,
+			   len * sizeof(filter->buffer[0]));
+	#endif
 
 	filter->b_end += len ;
 	filter->in_used += len ;
@@ -1669,6 +1867,13 @@ prepare_data (SINC_FILTER *filter, int channels, SRC_DATA *data, int half_filter
 
 	return SRC_ERR_NO_ERROR ;
 } /* prepare_data */
+
+
+static SRC_ERROR
+prepare_data (SINC_FILTER *filter, int channels, SRC_DATA * const data, int half_filter_chan_len)
+{
+	return _prepare_data(filter, channels, SRC_DATA_TYPE_FLOAT, data, half_filter_chan_len);
+}
 
 static void
 sinc_close (SRC_STATE *state)

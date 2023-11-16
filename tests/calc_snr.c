@@ -21,6 +21,8 @@
 
 #include <fftw3.h>
 
+#include <limits.h>
+
 #define	MAX_SPEC_LEN	(1<<18)
 #define	MAX_PEAKS		10
 
@@ -62,6 +64,66 @@ calculate_snr (float *data, int len, int expected_peaks)
 
 	return snr ;
 } /* calculate_snr */
+
+double
+calculate_snr_S32 (int *dataS32, int len, int expected_peaks)
+{	static double magnitude [MAX_SPEC_LEN] ;
+	static double datacopy [MAX_SPEC_LEN] ;
+
+	double snr = 200.0 ;
+	int k ;
+
+	if (len > MAX_SPEC_LEN)
+	{	printf ("%s : line %d : data length too large.\n", __FILE__, __LINE__) ;
+		exit (1) ;
+		} ;
+
+	for (k = 0 ; k < len ; k++)
+		datacopy [k] = (double)dataS32 [k] / INT_MAX;
+
+	/* Pad the data just a little to speed up the FFT. */
+	while ((len & 0x1F) && len < MAX_SPEC_LEN)
+	{	datacopy [len] = 0.0 ;
+		len ++ ;
+		} ;
+
+	log_mag_spectrum (datacopy, len, magnitude) ;
+	smooth_mag_spectrum (magnitude, len / 2) ;
+
+	snr = find_snr (magnitude, len, expected_peaks) ;
+
+	return snr ;
+} /* calculate_snr_S32 */
+
+double
+calculate_snr_D64 (double *dataD64, int len, int expected_peaks)
+{	static double magnitude [MAX_SPEC_LEN] ;
+	static double datacopy [MAX_SPEC_LEN] ;
+
+	double snr = 200.0 ;
+	int k ;
+
+	if (len > MAX_SPEC_LEN)
+	{	printf ("%s : line %d : data length too large.\n", __FILE__, __LINE__) ;
+		exit (1) ;
+		} ;
+
+	for (k = 0 ; k < len ; k++)
+		datacopy [k] = (float)dataD64 [k] ;		// pure double precision datacopy seems to be incompatible with the processes below.
+
+	/* Pad the data just a little to speed up the FFT. */
+	while ((len & 0x1F) && len < MAX_SPEC_LEN)
+	{	datacopy [len] = 0.0 ;
+		len ++ ;
+		} ;
+
+	log_mag_spectrum (datacopy, len, magnitude) ;
+	smooth_mag_spectrum (magnitude, len / 2) ;
+
+	snr = find_snr (magnitude, len, expected_peaks) ;
+
+	return snr ;
+} /* calculate_snr_D64 */
 
 /*==============================================================================
 ** There is a slight problem with trying to measure SNR with the method used

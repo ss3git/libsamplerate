@@ -36,8 +36,10 @@ static float input [BUFFER_LEN] ;
 static float output [BUFFER_LEN] ;
 
 static long
-throughput_test (int converter, long best_throughput)
-{	SRC_DATA src_data ;
+throughput_test (int _converter, long best_throughput)
+{	int converter = _converter % SRC_S32_START;
+	int S32 = _converter / SRC_S32_START ? 1 : 0;
+	SRC_DATA src_data ;
 #if !defined(_WIN32) && defined(MULTI_THREADING)
 	struct timespec start_gettime, finish_gettime;
 #else
@@ -47,7 +49,12 @@ throughput_test (int converter, long best_throughput)
 	long total_frames = 0, throughput ;
 	int error ;
 
-	printf ("    %-30s    ", src_get_name (converter)) ;
+	if ( S32 ){
+		printf ("    %-30s S32 ", src_get_name (converter)) ;
+	}
+	else{
+		printf ("    %-30s    ", src_get_name (converter)) ;
+	}
 	fflush (stdout) ;
 
 	src_data.data_in = input ;
@@ -72,10 +79,18 @@ throughput_test (int converter, long best_throughput)
 
 	do
 	{
-		if ((error = src_simple (&src_data, converter, 1)) != 0)
-		{	puts (src_strerror (error)) ;
-			exit (1) ;
-			} ;
+		if ( S32 ){
+			if ((error = src_simple_S32 (&src_data, converter, 1)) != 0)
+			{	puts (src_strerror (error)) ;
+				exit (1) ;
+				} ;
+		}
+		else{
+			if ((error = src_simple (&src_data, converter, 1)) != 0)
+			{	puts (src_strerror (error)) ;
+				exit (1) ;
+				} ;
+		}
 
 		total_frames += src_data.output_frames_gen ;
 
@@ -145,6 +160,9 @@ single_run (void)
 #endif
 #ifdef ENABLE_SINC_BEST_CONVERTER
 	throughput_test (SRC_SINC_BEST_QUALITY, 0) ;
+	#ifdef SUPPORT_S32_INTERFACE
+	throughput_test (SRC_SINC_BEST_QUALITY_S32, 0) ;
+	#endif
 #endif
 
 	puts ("") ;
@@ -165,6 +183,7 @@ multi_run (int run_count)
 
 #ifdef ENABLE_SINC_BEST_CONVERTER
 	long sinc_best = 0 ;
+	long sinc_best32 = 0 ;
 #endif
 	int k ;
 
@@ -185,6 +204,9 @@ multi_run (int run_count)
 #endif
 #ifdef ENABLE_SINC_BEST_CONVERTER
 		sinc_best =			throughput_test (SRC_SINC_BEST_QUALITY, sinc_best) ;
+		#ifdef SUPPORT_S32_INTERFACE
+		sinc_best32 =			throughput_test (SRC_SINC_BEST_QUALITY_S32, sinc_best) ;
+		#endif
 #endif
 		puts ("") ;
 
@@ -213,6 +235,7 @@ multi_run (int run_count)
 #endif
 #ifdef ENABLE_SINC_BEST_CONVERTER
 	printf ("    %-30s    %10ld\n", src_get_name (SRC_SINC_BEST_QUALITY), sinc_best) ;
+	printf ("    %-30s S32 %10ld\n", src_get_name (SRC_SINC_BEST_QUALITY), sinc_best32) ;
 #endif
 
 	puts ("") ;

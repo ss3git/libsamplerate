@@ -3,6 +3,12 @@ cmake_minimum_required(VERSION 3.1..3.18)
 if (BUILD_MULTI_THREADING)
   set(MULTI_THREADING 1)
   add_definitions(-DMULTI_THREADING)
+  
+  if (BUILD_SUPPORT_S32_INTERFACE)
+    add_definitions(-DSINC_DOUBLE_PRECISION)
+    add_definitions(-DSINC_FLOAT_COMPATIBLE)
+    add_definitions(-DSUPPORT_S32_INTERFACE)
+  endif()
 endif()
 
 # Policies

@@ -17,11 +17,18 @@
 #include "util.h"
 
 static void
-downsample_test (int converter)
-{	static float in [1000], out [10] ;
+downsample_test (int _converter)
+{	int converter = _converter % SRC_S32_START;
+	int S32 = _converter / SRC_S32_START ? 1 : 0;
+	static float in [1000], out [10] ;
 	SRC_DATA data ;
 
-    printf ("        downsample_test     (%-28s) ....... ", src_get_name (converter)) ;
+	if ( S32 ){
+    	printf ("        downsample_test     (%-25s S32) ....... ", src_get_name (converter)) ;
+	}
+	else{
+    	printf ("        downsample_test     (%-28s) ....... ", src_get_name (converter)) ;
+	}
 	fflush (stdout) ;
 
 	data.src_ratio = 1.0 / 255.0 ;
@@ -30,10 +37,18 @@ downsample_test (int converter)
 	data.data_in = in ;
 	data.data_out = out ;
 
-	if (src_simple (&data, converter, 1))
-	{	puts ("src_simple failed.") ;
-		exit (1) ;
-		} ;
+	if (S32){
+		if (src_simple_S32 (&data, converter, 1))
+		{	puts ("src_simple failed.") ;
+			exit (1) ;
+			} ;
+	}
+	else{
+		if (src_simple (&data, converter, 1))
+		{	puts ("src_simple failed.") ;
+			exit (1) ;
+			} ;
+	}
 
 	puts ("ok") ;
 } /* downsample_test */
@@ -53,6 +68,9 @@ main (void)
 #endif
 #ifdef ENABLE_SINC_BEST_CONVERTER
 	downsample_test (SRC_SINC_BEST_QUALITY) ;
+	#ifdef SUPPORT_S32_INTERFACE
+	downsample_test (SRC_SINC_BEST_QUALITY_S32) ;
+	#endif
 #endif
 
 	puts ("") ;

@@ -18,7 +18,7 @@
 
 #include "common.h"
 
-static SRC_ERROR zoh_vari_process (SRC_STATE *state, SRC_DATA *data) ;
+static SRC_ERROR zoh_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped) ;
 static void zoh_reset (SRC_STATE *state) ;
 static SRC_STATE *zoh_copy (SRC_STATE *state) ;
 static void zoh_close (SRC_STATE *state) ;
@@ -49,10 +49,15 @@ static SRC_STATE_VT zoh_state_vt =
 */
 
 static SRC_ERROR
-zoh_vari_process (SRC_STATE *state, SRC_DATA *data)
+zoh_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped)
 {	ZOH_DATA 	*priv ;
 	double		src_ratio, input_index, rem ;
 	int			ch ;
+	SRC_DATA *data = data_wrapped->data;
+
+	if ( data_wrapped->type != SRC_DATA_TYPE_FLOAT ){
+		return SRC_ERR_BAD_CONVERTER;
+	}
 
 	if (data->input_frames <= 0)
 		return SRC_ERR_NO_ERROR ;

@@ -134,13 +134,25 @@ typedef enum SRC_ERROR
 	SRC_ERR_MAX_ERROR
 } SRC_ERROR ;
 
+enum {
+	SRC_DATA_TYPE_FLOAT,
+	SRC_DATA_TYPE_DOUBLE,
+	SRC_DATA_TYPE_S32,
+};
+
+typedef struct SRC_DATA_WRAPPED_tag
+{
+	int type;
+	SRC_DATA *data;
+} SRC_DATA_WRAPPED ;
+
 typedef struct SRC_STATE_VT_tag
 {
 	/* Varispeed process function. */
-	SRC_ERROR		(*vari_process) (SRC_STATE *state, SRC_DATA *data) ;
+	SRC_ERROR		(*vari_process) (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped) ;
 
 	/* Constant speed process function. */
-	SRC_ERROR		(*const_process) (SRC_STATE *state, SRC_DATA *data) ;
+	SRC_ERROR		(*const_process) (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped) ;
 
 	/* State reset. */
 	void			(*reset) (SRC_STATE *state) ;

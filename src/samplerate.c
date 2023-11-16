@@ -81,10 +81,11 @@ src_delete (SRC_STATE *state)
 	return NULL ;
 } /* src_state */
 
-int
-src_process (SRC_STATE *state, SRC_DATA *data)
+static int
+src_process_internal (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped)
 {
 	int error ;
+	SRC_DATA *data = data_wrapped->data;
 
 	if (state == NULL)
 		return SRC_ERR_BAD_STATE ;
@@ -135,12 +136,63 @@ src_process (SRC_STATE *state, SRC_DATA *data)
 
 	/* Now process. */
 	if (fabs (state->last_ratio - data->src_ratio) < 1e-15)
-		error = state->vt->const_process (state, data) ;
+		error = state->vt->const_process (state, data_wrapped) ;
 	else
-		error = state->vt->vari_process (state, data) ;
+		error = state->vt->vari_process (state, data_wrapped) ;
 
 	return error ;
 } /* src_process */
+
+int
+src_process (SRC_STATE *state, SRC_DATA *data)
+{
+	SRC_DATA_WRAPPED src_data_wrap;
+	
+	src_data_wrap.type = SRC_DATA_TYPE_FLOAT;
+	src_data_wrap.data = data;
+	
+	return src_process_internal(state, &src_data_wrap);
+}
+
+#ifdef SUPPORT_S32_INTERFACE
+
+int
+src_process_S32 (SRC_STATE *state, SRC_DATA *dataS32)
+{
+	SRC_DATA_WRAPPED src_data_wrap;
+	
+	src_data_wrap.type = SRC_DATA_TYPE_S32;
+	src_data_wrap.data = dataS32;
+	
+	return src_process_internal(state, &src_data_wrap);
+}
+
+int
+src_process_D64 (SRC_STATE *state, SRC_DATA *dataD64)
+{
+	SRC_DATA_WRAPPED src_data_wrap;
+	
+	src_data_wrap.type = SRC_DATA_TYPE_DOUBLE;
+	src_data_wrap.data = dataD64;
+	
+	return src_process_internal(state, &src_data_wrap);
+}
+
+#else
+
+int
+src_process_S32 (SRC_STATE *state, SRC_DATA *dataS32)
+{
+	return SRC_ERR_BAD_CONVERTER;
+}
+
+int
+src_process_D64 (SRC_STATE *state, SRC_DATA *dataD64)
+{
+	return SRC_ERR_BAD_CONVERTER;
+}
+
+#endif
 
 long
 src_callback_read (SRC_STATE *state, double src_ratio, long frames, float *data)
@@ -423,6 +475,59 @@ src_simple (SRC_DATA *src_data, int converter, int channels)
 
 	return error ;
 } /* src_simple */
+
+#ifdef SUPPORT_S32_INTERFACE
+
+int
+src_simple_S32 (SRC_DATA *src_data, int converter, int channels)
+{	SRC_STATE	*src_state ;
+	int 		error ;
+
+	if ((src_state = src_new (converter, channels, &error)) == NULL)
+		return error ;
+
+	src_data->end_of_input = 1 ; /* Only one buffer worth of input. */
+
+	error = src_process_S32 (src_state, src_data) ;
+
+	src_delete (src_state) ;
+
+	return error ;
+} /* src_simple_S32 */
+
+int
+src_simple_D64 (SRC_DATA *src_data, int converter, int channels)
+{	SRC_STATE	*src_state ;
+	int 		error ;
+
+	if ((src_state = src_new (converter, channels, &error)) == NULL)
+		return error ;
+
+	src_data->end_of_input = 1 ; /* Only one buffer worth of input. */
+
+	error = src_process_D64 (src_state, src_data) ;
+
+	src_delete (src_state) ;
+
+	return error ;
+} /* src_simple_D64 */
+
+#else
+
+int
+src_simple_S32 (SRC_DATA *src_data, int converter, int channels)
+{
+	return SRC_ERR_BAD_CONVERTER;
+}
+
+int
+src_simple_D64 (SRC_DATA *src_data, int converter, int channels)
+{
+	return SRC_ERR_BAD_CONVERTER;
+}
+
+#endif
+
 
 void
 src_short_to_float_array (const short *in, float *out, int len)

@@ -19,6 +19,8 @@
 #define	ARRAY_LEN(x)	((int) (sizeof (x) / sizeof ((x) [0])))
 
 void gen_windowed_sines (int freq_count, const double *freqs, double max, float *output, int output_len) ;
+void gen_windowed_sines_S32 (int freq_count, const double *freqs, double max, int *output, int output_len) ;
+void gen_windowed_sines_D64 (int freq_count, const double *freqs, double max, double *output, int output_len) ;
 
 void save_oct_float (char *filename, float *input, int in_len, float *output, int out_len) ;
 void save_oct_double (char *filename, double *input, int in_len, double *output, int out_len) ;
@@ -30,6 +32,8 @@ void deinterleave_data (const float *in, float *out, int frames, int channels) ;
 void reverse_data (float *data, int datalen) ;
 
 double calculate_snr (float *data, int len, int expected_peaks) ;
+double calculate_snr_S32 (int *data, int len, int expected_peaks) ;
+double calculate_snr_D64 (double *data, int len, int expected_peaks) ;
 
 const char * get_cpu_name (void) ;
 
@@ -39,3 +43,14 @@ const char * get_cpu_name (void) ;
 		exit (1) ; \
 	    } ;
 
+
+enum { // these are only for test suites.
+	SRC_S32_START = 32,
+#ifdef SUPPORT_S32_INTERFACE
+	SRC_SINC_BEST_QUALITY_S32 = SRC_S32_START,
+#endif
+	SRC_D64_START = 64,
+#ifdef SUPPORT_S32_INTERFACE
+	SRC_SINC_BEST_QUALITY_D64 = SRC_D64_START,
+#endif
+};

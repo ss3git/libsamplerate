@@ -15,6 +15,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
+#include <limits.h>
 
 #include	"util.h"
 
@@ -55,6 +56,81 @@ gen_windowed_sines (int freq_count, const double *freqs, double max, float *outp
 
 	return ;
 } /* gen_windowed_sines */
+
+void
+gen_windowed_sines_S32 (int freq_count, const double *freqs, double max, int *outputS32, int output_len)
+{	int 	k, freq ;
+	double	amplitude, phase ;
+	double *output_tmp = (double*)calloc(output_len, sizeof(double));
+
+	amplitude = max / freq_count ;
+
+	for (k = 0 ; k < output_len ; k++)
+		output_tmp [k] = 0.0 ;
+
+	for (freq = 0 ; freq < freq_count ; freq++)
+	{	phase = 0.9 * M_PI / freq_count ;
+
+		if (freqs [freq] <= 0.0 || freqs [freq] >= 0.5)
+		{	printf ("\n%s : Error : freq [%d] == %g is out of range. Should be < 0.5.\n", __FILE__, freq, freqs [freq]) ;
+			exit (1) ;
+			} ;
+
+		for (k = 0 ; k < output_len ; k++)
+			output_tmp [k] = (float) (output_tmp [k] + (amplitude * sin (freqs [freq] * (2 * k) * M_PI + phase))) ;
+		} ;
+
+	/* Apply Hanning Window. */
+	for (k = 0 ; k < output_len ; k++)
+		output_tmp [k] = (float) (output_tmp [k] * (0.5 - 0.5 * cos ((2 * k) * M_PI / (output_len - 1)))) ;
+
+	/*	data [k] *= 0.3635819 - 0.4891775 * cos ((2 * k) * M_PI / (output_len - 1))
+					+ 0.1365995 * cos ((4 * k) * M_PI / (output_len - 1))
+					- 0.0106411 * cos ((6 * k) * M_PI / (output_len - 1)) ;
+		*/
+
+	for( int i=0 ; i<output_len ; i++ ){
+		outputS32[i] = (int)(output_tmp[i] * INT_MAX);
+	}
+
+	free(output_tmp);
+
+	return ;
+} /* gen_windowed_sines_S32 */
+
+void
+gen_windowed_sines_D64 (int freq_count, const double *freqs, double max, double *outputD64, int output_len)
+{	int 	k, freq ;
+	double	amplitude, phase ;
+
+	amplitude = max / freq_count ;
+
+	for (k = 0 ; k < output_len ; k++)
+		outputD64 [k] = 0.0 ;
+
+	for (freq = 0 ; freq < freq_count ; freq++)
+	{	phase = 0.9 * M_PI / freq_count ;
+
+		if (freqs [freq] <= 0.0 || freqs [freq] >= 0.5)
+		{	printf ("\n%s : Error : freq [%d] == %g is out of range. Should be < 0.5.\n", __FILE__, freq, freqs [freq]) ;
+			exit (1) ;
+			} ;
+
+		for (k = 0 ; k < output_len ; k++)
+			outputD64 [k] = (double) (outputD64 [k] + (amplitude * sin (freqs [freq] * (2 * k) * M_PI + phase))) ;
+		} ;
+
+	/* Apply Hanning Window. */
+	for (k = 0 ; k < output_len ; k++)
+		outputD64 [k] = (double) (outputD64 [k] * (0.5 - 0.5 * cos ((2 * k) * M_PI / (output_len - 1)))) ;
+
+	/*	data [k] *= 0.3635819 - 0.4891775 * cos ((2 * k) * M_PI / (output_len - 1))
+					+ 0.1365995 * cos ((4 * k) * M_PI / (output_len - 1))
+					- 0.0106411 * cos ((6 * k) * M_PI / (output_len - 1)) ;
+		*/
+
+	return ;
+} /* gen_windowed_sines_D64 */
 
 void
 save_oct_float (char *filename, float *input, int in_len, float *output, int out_len)

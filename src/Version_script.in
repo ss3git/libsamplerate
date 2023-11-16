@@ -14,10 +14,14 @@
 		src_get_description ;
 		src_get_version ;
 		src_process ;
+		src_process_S32 ;
+		src_process_D64 ;
 		src_reset ;
 		src_error ;
 		src_strerror ;
 		src_simple ;
+		src_simple_S32 ;
+		src_simple_D64 ;
 		src_is_valid_ratio ;
 		src_set_ratio ;
 

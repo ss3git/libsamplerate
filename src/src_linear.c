@@ -18,7 +18,7 @@
 
 #include "common.h"
 
-static SRC_ERROR linear_vari_process (SRC_STATE *state, SRC_DATA *data) ;
+static SRC_ERROR linear_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped) ;
 static void linear_reset (SRC_STATE *state) ;
 static SRC_STATE *linear_copy (SRC_STATE *state) ;
 static void linear_close (SRC_STATE *state) ;
@@ -51,10 +51,15 @@ static SRC_STATE_VT linear_state_vt =
 */
 
 static SRC_ERROR
-linear_vari_process (SRC_STATE *state, SRC_DATA *data)
+linear_vari_process (SRC_STATE *state, SRC_DATA_WRAPPED *data_wrapped)
 {	LINEAR_DATA *priv ;
 	double		src_ratio, input_index, rem ;
 	int			ch ;
+	SRC_DATA *data = data_wrapped->data;
+
+	if ( data_wrapped->type != SRC_DATA_TYPE_FLOAT ){
+		return SRC_ERR_BAD_CONVERTER;
+	}
 
 	if (data->input_frames <= 0)
 		return SRC_ERR_NO_ERROR ;
