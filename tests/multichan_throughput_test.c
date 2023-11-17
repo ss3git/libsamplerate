@@ -36,7 +36,7 @@ static float input [BUFFER_LEN] ;
 
 #if (defined(ENABLE_SINC_FAST_CONVERTER) || defined(ENABLE_SINC_MEDIUM_CONVERTER) || \
 	defined(ENABLE_SINC_BEST_CONVERTER))
-static float output [BUFFER_LEN] ;
+static float output [BUFFER_LEN*8] ;
 
 static void
 throughput_test (int _converter, int channels, long *best_throughput, double src_ratio)
@@ -53,10 +53,10 @@ throughput_test (int _converter, int channels, long *best_throughput, double src
 	int error ;
 
 	if ( S32 ){
-		printf ("    %-27s S32    %2d         ", src_get_name (converter), channels) ;
+		printf ("    %-27s S32  %2d     ", src_get_name (converter), channels) ;
 	}
 	else{
-		printf ("    %-30s     %2d         ", src_get_name (converter), channels) ;
+		printf ("    %-30s   %2d     ", src_get_name (converter), channels) ;
 	}
 	fflush (stdout) ;
 
@@ -111,7 +111,7 @@ throughput_test (int _converter, int channels, long *best_throughput, double src
 	}
 	while (duration < 2.5) ;
 
-	if ( src_data.src_ratio == 0.99 ){
+	if ( src_ratio <= 1.0 ){
 		if (src_data.input_frames_used != src_data.input_frames)
 		{	printf ("\n\nLine %d : input frames used %ld should be %ld\n", __LINE__, src_data.input_frames_used, src_data.input_frames) ;
 			exit (1) ;
@@ -129,7 +129,7 @@ throughput_test (int _converter, int channels, long *best_throughput, double src
 	throughput = lrint (floor (total_frames / duration)) ;
 
 	if (!best_throughput)
-	{	printf ("%5.2f      %10ld\n", duration, throughput) ;
+	{	printf ("%5.2f      %10ld (x%7.2f)\n", duration, throughput, (throughput/src_ratio/44100)) ;
 		}
 	else
 	{	*best_throughput = MAX (throughput, *best_throughput) ;
@@ -150,15 +150,15 @@ single_run (void)
 
 	printf ("\n    CPU name : %s\n", get_cpu_name ()) ;
 
-	double src_ratio[2] = {0.99, 8.0};
+	double src_ratio[] = {0.99, 8.0, 7.0, 0.25};
 
-for( int i=0 ; i<2 ; i++ ){
+for( int i=0 ; i<sizeof(src_ratio)/sizeof(double) ; i++ ){
 	printf ("\n    SRC_RATIO : %.2lf\n", src_ratio[i]) ;
 	
 	puts (
 		"\n"
-		"    Converter                        Channels    Duration      Throughput\n"
-		"    ---------------------------------------------------------------------"
+		"    Converter                        Ch    Duration  Throughput (times faster than realtime if 44.1k in)\n"
+		"    -------------------------------------------------------------------------"
 		) ;
 
 #ifdef ENABLE_SINC_FAST_CONVERTER
@@ -199,7 +199,7 @@ multi_run (int run_count)
 
 	puts (
 		"\n"
-		"    Converter                        Channels    Duration      Throughput    Best Throughput\n"
+		"    Converter                        Ch    Duration      Throughput    Best Throughput\n"
 		"    ----------------------------------------------------------------------------------------"
 		) ;
 
