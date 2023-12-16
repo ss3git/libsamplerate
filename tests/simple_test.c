@@ -60,11 +60,35 @@ main (void)
 	return 0 ;
 } /* main */
 
+static long result_input_frames_used[10];
+static long result_output_frames_gen[10];
+
 static void
 src_simple_produces_output_test (int converter, double src_ratio)
 {
-	for (int channels = 1; channels <= 9; channels++)
+	for (int channels = 1; channels <= 9; channels++){
 		src_simple_produces_output(converter, channels, src_ratio);
+
+		if (channels == 1){
+			//printf("\n\nLine %d : (result_input_frames_used:%ld, result_output_frames_gen:%ld).\n\n", __LINE__,
+			//			 result_input_frames_used[1], result_output_frames_gen[1]);
+		}
+		else
+		{
+			if (result_input_frames_used[channels] != result_input_frames_used[1])
+			{
+				printf("\n\nLine %d : input_frames_used does not match (ch%d:%ld, ch%d:%ld).\n\n", __LINE__,
+						 channels, result_input_frames_used[channels], 1, result_input_frames_used[1]);
+				//exit(1);
+			};
+			if (result_output_frames_gen[channels] != result_output_frames_gen[1])
+			{
+				printf("\n\nLine %d : output_frames_gen does not match (ch%d:%ld, ch%d:%ld).\n\n", __LINE__,
+						 channels, result_output_frames_gen[channels], 1, result_output_frames_gen[1]);
+				//exit(1);
+			};
+		}
+	}
 }
 
 static void
@@ -103,6 +127,10 @@ src_simple_produces_output (int converter, int channels, double src_ratio)
 		} ;
 	free(input);
 	free(output);
+
+	result_input_frames_used[channels] = src_data.input_frames_used;
+	result_output_frames_gen[channels] = src_data.output_frames_gen;
+	
 	puts ("ok") ;
 }
 
